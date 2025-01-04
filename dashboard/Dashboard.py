@@ -18,7 +18,7 @@ with st.expander("Lihat Deskripsi Lengkap"):
 # Fungsi untuk load data
 @st.cache_data
 def load_data():
-    df = pd.read_csv('all_data.csv')
+    df = pd.read_csv('dashboard/all_data.csv')
     df['datetime'] = pd.to_datetime(df[['year', 'month', 'day', 'hour']])
     df.set_index('datetime', inplace=True)
     return df
