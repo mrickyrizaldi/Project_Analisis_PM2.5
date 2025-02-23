@@ -1,1 +1,1 @@
-https://projectsubricky.streamlit.app/
+https://guanyuan-ricky.streamlit.app/
