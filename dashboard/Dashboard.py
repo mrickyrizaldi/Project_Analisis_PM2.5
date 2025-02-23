@@ -12,19 +12,20 @@ with st.expander("Lihat Deskripsi Lengkap"):
     st.write("""
         Ini adalah dashboard interaktif untuk menganalisis data polusi udara PM2.5 di Guanyuan dalam rentang
         01 Maret 2013 - 28 Februari 2017. Anda dapat menggunakan filter untuk melihat tren PM2.5 berdasarkan musim, 
-        tipe hari, dan tahun serta melihat visualisasinya berdasarkan Musim, Tipe Hari dan Kombinasi Keduanya
+        tipe hari, Kategori dan tahun serta melihat visualisasinya berdasarkan Musim, Tipe Hari, Kombinasi Keduanya bahkan
+        distribusi kategorinya.
     """)
 
 # Fungsi untuk load data
 @st.cache_data
 def load_data():
-    df = pd.read_csv('dashboard/all_data.csv')
+    df = pd.read_csv('all_data.csv')
     df['datetime'] = pd.to_datetime(df[['year', 'month', 'day', 'hour']])
     df.set_index('datetime', inplace=True)
     return df
 
-# Fungsi untuk mendapatkan filter berdasarkan musim, tipe hari, dan rentang waktu
-def filter_data(df, musim=None, tipe_hari=None, rentang_waktu=None):
+# Fungsi untuk mendapatkan filter berdasarkan musim, tipe hari, kategori dan rentang waktu
+def filter_data(df, musim=None, tipe_hari=None, rentang_waktu=None, kategori=None):
     # Filter berdasarkan musim
     if musim:
         df = df[df['musim'].isin(musim)]
@@ -34,12 +35,16 @@ def filter_data(df, musim=None, tipe_hari=None, rentang_waktu=None):
     # Filter berdasarkan rentang waktu
     if rentang_waktu:
         df = df.loc[rentang_waktu[0]:rentang_waktu[1]]
+    # Filter berdasarkan kategori
+    if kategori:
+        df = df[df['Kategori_PM2.5'].isin(kategori)]
     return df
 
 # Load data
 df = load_data()
 
 with st.sidebar:
+    st.title("Filter Data PM2.5")
     # Tambahkan gambar di sidebar
     st.image(
         "https://static.vecteezy.com/system/resources/previews/035/684/830/non_2x/pollution-pm2-5-icon-dust-in-the-air-safety-concept-illustration-vector.jpg",
@@ -49,30 +54,49 @@ with st.sidebar:
     # Pilih rentang waktu
     rentang_waktu = st.date_input(
         "Rentang Waktu",
-        value=(df.index.min(), df.index.max()),  # Rentang default
+        value=(),
         min_value=df.index.min(),
-        max_value=df.index.max())
+        max_value=df.index.max()
+    )
+    # Tangani input rentang waktu dengan try-except
+    try:
+        if len(rentang_waktu) == 2:
+            start_date, end_date = rentang_waktu
+        else:
+            raise ValueError("Rentang waktu belum dipilih.")  # Paksa ke except jika tidak ada dua tanggal
+    except:
+        start_date, end_date = df.index.min(), df.index.max()  # Gunakan rentang penuh
 
     # Pilih musim
     musim = st.multiselect(
-        'Pilih musim',
+        'Pilih Musim',
         options=df['musim'].unique(),
-        default=df['musim'].unique())
+        default=[]
+    )
 
     # Pilih tipe hari
     tipe_hari = st.multiselect(
-        'Pilih tipe hari',
+        'Pilih Tipe Hari',
         options=df['tipe_hari'].unique(),
-        default=df['tipe_hari'].unique())
+        default=[]
+    )
+
+    # Pilih Kategori
+    kategori = st.multiselect(
+        'Pilih Kategori',
+        options=df['Kategori_PM2.5'].unique(),
+        default=[]
+    )
+    st.caption('Copyright (c) MrickyJrs 2025')
 
 # Terapkan filter ke data
-filtered_data = filter_data(df, musim=musim, tipe_hari=tipe_hari, rentang_waktu=rentang_waktu)
+filtered_data = filter_data(df, musim=musim, tipe_hari=tipe_hari, rentang_waktu=rentang_waktu, kategori=kategori)
 
 # Tampilkan data yang difilter
 st.write("Data yang Difilter:")
 show_data = st.checkbox("Tampilkan Data")
 if show_data:
-    st.dataframe(df)
+    st.dataframe(filtered_data)
 
 # Fungsi untuk membuat grafik bar chart interaktif
 def create_bar_chart(data, x_col, y_col, title, xlabel, ylabel, hue_col=None):
@@ -111,22 +135,38 @@ def create_boxplot(data, x_col, y_col, title, xlabel, ylabel):
     st.plotly_chart(fig)
 
 # Fungsi untuk membuat heatmap
-def create_heatmap(data, title, cbar_label, fmt=".1f", cmap="YlGnBu"):
+def create_heatmap(data, title, cbar_label, fmt=".1f", cmap="YlGnBu", yaxis_title="Musim/Tipe Hari",
+                   hovertemplate="Konsentrasi PM2.5: %{z} µg/m³<br>Musim: %{y}<br>Tahun: %{x}<extra></extra>"):
     data = data.where(pd.notna(data), None)
+    # Gabungkan index jika multi-index
+    if isinstance(data.index, pd.MultiIndex):
+        data.index = data.index.map(lambda x: f"{x[0]} - {x[1]}")
+
     fig = go.Figure(data=go.Heatmap(
-        z=data.values, x=data.columns, y=data.index, colorscale=cmap, colorbar=dict(title=cbar_label),
-        hovertemplate="Konsentrasi PM2.5: %{z} µg/m³<br>Musim: %{y}<br>Tahun: %{x}<extra></extra>"))
-    for i in range(len(data.index)):
-        for j in range(len(data.columns)):
-            if pd.notna(data.iloc[i, j]):
-                fig.add_annotation(
-                    x=data.columns[j], y=data.index[i], text=f"{data.iloc[i, j]:{fmt}}", showarrow=False,
-                    font=dict(size=12, color="black"), align="center")
-    fig.update_layout(title=title, xaxis_title="Tahun", yaxis_title="Musim/Tipe Hari", height=600, width=800)
+        z=data.values, x=data.columns, y=data.index, colorscale=cmap,
+        colorbar=dict(title=cbar_label),
+        hovertemplate=hovertemplate
+    ))
+
+    if data.shape[0] < 10 and data.shape[1] < 10:
+        for i in range(len(data.index)):
+            for j in range(len(data.columns)):
+                if pd.notna(data.iloc[i, j]):
+                    color_text = "white" if data.iloc[i, j] > data.mean().mean() else "black"
+                    fig.add_annotation(
+                        x=data.columns[j], y=data.index[i], text=f"{data.iloc[i, j]:{fmt}}",
+                        showarrow=False, font=dict(size=12, color=color_text), align="center"
+                    )
+    fig.update_layout(
+        title=title, xaxis_title="Tahun", yaxis_title=yaxis_title,
+        height=600, width=800, xaxis=dict(tickmode='array', tickvals=data.columns,
+                                          ticktext=[str(year) for year in data.columns])
+    )
     return fig
 
 # Tab layout
-tab1, tab2, tab3 = st.tabs(["Berdasarkan Musim", "Berdasarkan Tipe Hari", "Kombinasi Musim dan Tipe Hari"])
+tab1, tab2, tab3, tab4 = st.tabs(["Berdasarkan Musim", "Berdasarkan Tipe Hari", "Kombinasi Musim dan Tipe Hari",
+                                  "Berdasarkan Kategori"])
 
 with tab1:
     st.header('Analisis PM2.5 Berdasarkan Musim')
@@ -147,7 +187,7 @@ with tab1:
     with st.expander("Heat Map: Konsentrasi PM2.5 Berdasarkan Musim dan Tahun (2013-2017)"):
         # Heatmap per Musim dan Tahun
         heatmap_data_1 = musim_tahun_stats.pivot_table(index='musim', columns='year', values='PM2.5')
-        fig1 = create_heatmap(heatmap_data_1, 'Konsentrasi PM2.5 per Musim dan Tahun (2013-2017)', 'Konsentrasi PM2.5 (µg/m³)')
+        fig1 = create_heatmap(heatmap_data_1, 'Konsentrasi PM2.5 per Musim dan Tahun (2013-2017)', 'Konsentrasi PM2.5 (µg/m³)', yaxis_title="Musim")
         st.plotly_chart(fig1)
 
     with st.expander("Line Chart: Tren Konsentrasi PM2.5 Berdasarkan Musim dan Tahun (2013-2017)"):
@@ -173,7 +213,7 @@ with tab2:
     with st.expander("Heat Map: Konsentrasi PM2.5 per Tipe Hari dan Tahun (2013-2017)"):
         # Heatmap per Tipe Hari dan Tahun
         heatmap_data_2 = tipe_hari_tahun_stats.pivot_table(index='tipe_hari', columns='year', values='PM2.5')
-        fig2 = create_heatmap(heatmap_data_2, 'Konsentrasi PM2.5 per Tipe Hari dan Tahun (2013-2017)', 'Konsentrasi PM2.5 (µg/m³)')
+        fig2 = create_heatmap(heatmap_data_2, 'Konsentrasi PM2.5 per Tipe Hari dan Tahun (2013-2017)', 'Konsentrasi PM2.5 (µg/m³)', yaxis_title="Tipe Hari")
         st.plotly_chart(fig2)
 
     with st.expander("Line Chart: Tren Konsentrasi PM2.5 Berdasarkan Tipe Hari dan Tahun (2013-2017)"):
@@ -190,6 +230,7 @@ with tab3:
     # Bagian 3: Kombinasi Musim dan Tipe Hari
     st.header('Analisis Kombinasi Musim dan Tipe Hari')
     gabungan_stats = filtered_data.groupby(['musim', 'tipe_hari'])['PM2.5'].mean().reset_index()
+    heatmap_gabungan = filtered_data.groupby(['musim', 'tipe_hari', 'year'])['PM2.5'].mean().reset_index()
 
     with st.expander("Clustered Bar Chart: Konsentrasi PM2.5 per Musim dan Tipe Hari"):
         # Clustered Bar Chart per Musim dan Tipe Hari
@@ -198,16 +239,34 @@ with tab3:
                                    'Konsentrasi PM2.5 (µg/m³)',
                                    order=['Musim Dingin', 'Musim Semi', 'Musim Panas', 'Musim Gugur'])
 
-    with st.expander("Heatmap: Konsentrasi PM2.5 per Musim dan Tipe Hari"):
+    with st.expander("Heatmap: Konsentrasi PM2.5 per Musim dan Tipe Hari (2013-2017)"):
         # Heatmap Kombinasi Musim dan Tipe Hari
-        heatmap_data_3 = gabungan_stats.pivot_table(index='musim', columns='tipe_hari', values='PM2.5')
+        heatmap_data_3 = heatmap_gabungan.pivot_table(index=['musim','tipe_hari'], columns='year', values='PM2.5')
         fig3 = create_heatmap(heatmap_data_3, 'Konsentrasi PM2.5 per Musim dan Tipe Hari (2013-2017)', 'Konsentrasi PM2.5 (µg/m³)')
         st.plotly_chart(fig3)
 
-    with st.expander("Line Plot: Tren Konsentrasi PM2.5 per Musim dan Tipe Hari"):
-        # Line Plot: Tren PM2.5 per Musim dan Tipe Hari
-        create_line_chart(gabungan_stats, x_col='musim', y_col='PM2.5', hue_col='tipe_hari',
-            title='Tren Konsentrasi Rata-rata PM2.5 per Musim (Weekday vs Weekend)',
-            xlabel='Musim', ylabel='Konsentrasi PM2.5 (µg/m³)')
+with tab4:
+    st.header('Analisis Lanjutan Berdasarkan Kategori PM2.5')
+    with st.expander("Lihat Penjelasan Kategori"):
+        st.write("""
+                Konsentrasi Partikulat (PM2.5)
+                - Kategori Baik = 0-15.5 µg/m³.
+                - Kategori Sedang = 15.6-55.4 µg/m³.
+                - Kategori Tidak Sehat = 55.5-150.4 µg/m³.
+                - Kategori Sangat Tidak Sehat = 150.5-250.4 µg/m³.
+                - Kategori Berbahaya = >250.5 µg/m³.
+                
+                Source: [BMKG](https://www.bmkg.go.id/kualitas-udara/pm25)
+        """)
+    with st.expander("Heatmap: Distribusi Kategori PM2.5 (2013-2017)"):
+        # Analisis Lanjutan Berdasarkan Kategori PM2.5
+        kategori_order = ["Baik", "Sedang", "Tidak Sehat", "Sangat Tidak Sehat", "Berbahaya"]
+        kategori_stats = (filtered_data.groupby('year')['Kategori_PM2.5'].value_counts(normalize=True).unstack()
+                .reindex(columns=kategori_order, fill_value=0) * 100
+        )
+        # Heatmap Kategori PM2.5 (2013-2017)
+        fig4 = create_heatmap(kategori_stats.T, 'Persentase Distribusi Kategori PM2.5 (2013-2017)', 'Persentase Kategori PM2.5 (%)',
+                              yaxis_title="Kategori PM2.5", hovertemplate="Distribusi : %{z} % <br>Kategori: %{y}<br>Tahun: %{x}<extra></extra>")
+        st.plotly_chart(fig4)
 
 st.caption('Copyright (c) MrickyJrs 2025')
